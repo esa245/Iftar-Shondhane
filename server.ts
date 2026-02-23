@@ -131,6 +131,8 @@ async function startServer() {
   app.post("/api/events", (req, res) => {
     try {
       const event = req.body;
+      console.log("Adding event:", event.name);
+      
       const stmt = db.prepare(`
         INSERT INTO events (
           name, type, district, upazila, village, address, date_range, 
@@ -140,17 +142,30 @@ async function startServer() {
       `);
       
       const result = stmt.run(
-        event.name, event.type, event.district, event.upazila, event.village, 
-        event.address, event.date_range, event.start_time, event.iftar_time, 
-        event.contact, event.description, event.image_url, event.lat, event.lng, 
-        event.link_url, event.event_date, event.event_day, 
+        event.name || null, 
+        event.type || null, 
+        event.district || null, 
+        event.upazila || null, 
+        event.village || null, 
+        event.address || null, 
+        event.date_range || null, 
+        event.start_time || null, 
+        event.iftar_time || null, 
+        event.contact || null, 
+        event.description || null, 
+        event.image_url || null, 
+        event.lat ?? null, 
+        event.lng ?? null, 
+        event.link_url || null, 
+        event.event_date || null, 
+        event.event_day || null, 
         event.created_at || new Date().toISOString()
       );
       
       res.json({ success: true, id: result.lastInsertRowid });
     } catch (error) {
-      console.error("Failed to add event:", error);
-      res.status(500).json({ error: "Failed to add event" });
+      console.error("Failed to add event to SQLite:", error);
+      res.status(500).json({ error: "Failed to add event to database" });
     }
   });
 

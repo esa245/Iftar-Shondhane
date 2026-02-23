@@ -248,7 +248,10 @@ export default function App() {
         body: JSON.stringify(newEvent)
       });
 
-      if (!res.ok) throw new Error("Failed to save to server");
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to save to server");
+      }
 
       // 2. Save to Firebase (Backup)
       try {
@@ -279,8 +282,8 @@ export default function App() {
         link_url: "", event_date: "", event_day: ""
       });
     } catch (error) {
-      console.error("Failed to add event to Firebase", error);
-      alert("ইভেন্ট যুক্ত করতে সমস্যা হয়েছে।");
+      console.error("Failed to add event:", error);
+      alert("ইভেন্ট যুক্ত করতে সমস্যা হয়েছে: " + (error instanceof Error ? error.message : "Unknown error"));
     }
   };
 
