@@ -5,9 +5,36 @@ import { fileURLToPath } from "url";
 import { google } from "googleapis";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import Database from "better-sqlite3";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize SQLite Database
+const db = new Database("events.db");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    type TEXT,
+    district TEXT,
+    upazila TEXT,
+    village TEXT,
+    address TEXT,
+    date_range TEXT,
+    start_time TEXT,
+    iftar_time TEXT,
+    contact TEXT,
+    description TEXT,
+    image_url TEXT,
+    lat REAL,
+    lng REAL,
+    link_url TEXT,
+    event_date TEXT,
+    event_day TEXT,
+    created_at TEXT
+  )
+`);
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -88,6 +115,43 @@ async function startServer() {
 
   app.get("/api/auth/google/status", (req, res) => {
     res.json({ connected: !!(req.session as any).tokens });
+  });
+
+  // Events API
+  app.get("/api/events", (req, res) => {
+    try {
+      const events = db.prepare("SELECT * FROM events ORDER BY created_at DESC").all();
+      res.json(events);
+    } catch (error) {
+      console.error("Failed to fetch events:", error);
+      res.status(500).json({ error: "Failed to fetch events" });
+    }
+  });
+
+  app.post("/api/events", (req, res) => {
+    try {
+      const event = req.body;
+      const stmt = db.prepare(`
+        INSERT INTO events (
+          name, type, district, upazila, village, address, date_range, 
+          start_time, iftar_time, contact, description, image_url, 
+          lat, lng, link_url, event_date, event_day, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        event.name, event.type, event.district, event.upazila, event.village, 
+        event.address, event.date_range, event.start_time, event.iftar_time, 
+        event.contact, event.description, event.image_url, event.lat, event.lng, 
+        event.link_url, event.event_date, event.event_day, 
+        event.created_at || new Date().toISOString()
+      );
+      
+      res.json({ success: true, id: result.lastInsertRowid });
+    } catch (error) {
+      console.error("Failed to add event:", error);
+      res.status(500).json({ error: "Failed to add event" });
+    }
   });
 
   app.post("/api/drive/save", async (req, res) => {

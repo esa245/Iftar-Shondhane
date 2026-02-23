@@ -185,74 +185,79 @@ export default function App() {
     }
   };
 
-  const fetchEvents = () => {
+  const fetchEvents = async () => {
     setLoading(true);
     try {
-      const eventsRef = collection(db, 'events');
-      // Simplify query to avoid index requirements
-      const q = query(eventsRef);
+      const res = await fetch('/api/events');
+      if (!res.ok) throw new Error("Failed to fetch from server");
+      const data = await res.json();
+      
+      const eventsData: Event[] = data.filter((item: any) => {
+        // Client-side filtering
+        let matches = true;
+        if (filters.district && item.district !== filters.district) matches = false;
+        if (filters.type && item.type !== filters.type) matches = false;
+        if (filters.upazila && !item.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
+        if (filters.village && !item.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
+        return matches;
+      });
 
-      // Real-time listener
-      const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        console.log(`Received ${querySnapshot.size} documents from Firestore`);
+      setEvents(eventsData);
+    } catch (error) {
+      console.error("Failed to fetch events", error);
+      // Fallback to Firebase if server fails
+      try {
+        const eventsRef = collection(db, 'events');
+        const q = query(eventsRef);
+        const querySnapshot = await getDocs(q);
         const eventsData: Event[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          
-          // Client-side filtering
           let matches = true;
           if (filters.district && data.district !== filters.district) matches = false;
           if (filters.type && data.type !== filters.type) matches = false;
           if (filters.upazila && !data.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
           if (filters.village && !data.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
-          
-          if (matches) {
-            eventsData.push({ id: doc.id, ...data } as Event);
-          }
+          if (matches) eventsData.push({ id: doc.id, ...data } as Event);
         });
-
-        // Client-side sorting by created_at desc
-        eventsData.sort((a, b) => {
-          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return dateB - dateA;
-        });
-
         setEvents(eventsData);
-        setLoading(false);
-      }, (error) => {
-        console.error("Firestore Error:", error);
-        // If it's a permission error, it's likely rules
-        if (error.code === 'permission-denied') {
-          alert("Firebase Permission Denied. Please check your Firestore rules.");
-        }
-        setLoading(false);
-      });
-
-      return unsubscribe;
-    } catch (error) {
-      console.error("Failed to setup events listener", error);
+      } catch (e) {
+        console.error("Firebase fallback failed", e);
+      }
+    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const unsubscribe = fetchEvents();
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    fetchEvents();
   }, [filters]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const newEvent = {
+      ...formData,
+      created_at: new Date().toISOString()
+    };
+
     try {
-      // 1. Save to Firebase
-      await addDoc(collection(db, 'events'), {
-        ...formData,
-        created_at: new Date().toISOString()
+      // 1. Save to Server (SQLite)
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEvent)
       });
+
+      if (!res.ok) throw new Error("Failed to save to server");
+
+      // 2. Save to Firebase (Backup)
+      try {
+        await addDoc(collection(db, 'events'), newEvent);
+      } catch (e) {
+        console.error("Firebase backup failed", e);
+      }
       
-      // 2. Save to Google Drive if connected
+      // 3. Save to Google Drive if connected
       if (isGoogleConnected) {
         try {
           await fetch('/api/drive/save', {
@@ -266,6 +271,7 @@ export default function App() {
       }
       
       setShowAddForm(false);
+      fetchEvents(); // Refresh the list
       setFormData({
         name: "", type: "public_iftar", district: "", upazila: "", village: "",
         address: "", date_range: "", start_time: "", iftar_time: "",
