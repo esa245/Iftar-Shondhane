@@ -37,6 +37,7 @@ interface Event {
   link_url?: string;
   event_date?: string;
   event_day?: string;
+  target_date?: string;
   created_at?: string;
 }
 
@@ -212,7 +213,8 @@ export default function App() {
     lng: undefined as number | undefined,
     link_url: "",
     event_date: "",
-    event_day: ""
+    event_day: "",
+    target_date: ""
   });
 
   const getCurrentLocation = () => {
@@ -304,42 +306,31 @@ export default function App() {
     };
 
     try {
-      // 1. Save to Supabase (Primary)
+      // 1. Save to Supabase (Primary) - We wait for this
       const { error: supabaseError } = await supabase
         .from('events')
         .insert([newEvent]);
       
       if (supabaseError) throw supabaseError;
 
+      // Perform backups in the background without awaiting them to speed up UI response
       // 2. Save to Firebase (Backup)
-      try {
-        await addDoc(collection(db, 'events'), newEvent);
-      } catch (firebaseError) {
-        console.warn("Firebase backup failed", firebaseError);
-      }
+      addDoc(collection(db, 'events'), newEvent).catch(e => console.warn("Firebase backup failed", e));
 
       // 3. Save to Server (SQLite - Optional/Local Cache)
-      try {
-        await fetch('/api/events', {
+      fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newEvent)
+      }).catch(e => console.warn("SQLite save failed", e));
+      
+      // 4. Save to Google Drive if connected
+      if (isGoogleConnected) {
+        fetch('/api/drive/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newEvent)
-        });
-      } catch (serverError) {
-        console.warn("SQLite save failed", serverError);
-      }
-      
-      // 3. Save to Google Drive if connected
-      if (isGoogleConnected) {
-        try {
-          await fetch('/api/drive/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ eventData: formData })
-          });
-        } catch (driveError) {
-          console.error("Failed to save to Google Drive", driveError);
-        }
+          body: JSON.stringify({ eventData: formData })
+        }).catch(e => console.error("Failed to save to Google Drive", e));
       }
       
       alert("সফলভাবে যুক্ত হয়েছে! ওকে ক্লিক করুন।");
@@ -350,7 +341,7 @@ export default function App() {
         name: "", type: "public_iftar", district: "", upazila: "", village: "",
         address: "", date_range: "", start_time: "", iftar_time: "",
         contact: "", description: "", image_url: "", lat: undefined, lng: undefined,
-        link_url: "", event_date: "", event_day: ""
+        link_url: "", event_date: "", event_day: "", target_date: ""
       });
     } catch (error) {
       console.error("Failed to add event:", error);
@@ -358,6 +349,27 @@ export default function App() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Helper to calculate countdown
+  const getCountdown = (targetDate?: string) => {
+    if (!targetDate) return null;
+    const target = new Date(targetDate);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    target.setHours(0, 0, 0, 0);
+    
+    const diffTime = target.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return "শেষ হয়েছে";
+    if (diffDays === 0) return "আজকে";
+    if (diffDays === 1) return "আগামীকাল";
+    
+    const bengaliNumbers = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    const convertToBengali = (num: number) => num.toString().split('').map(d => bengaliNumbers[parseInt(d)]).join('');
+    
+    return `${convertToBengali(diffDays)} দিন বাকি`;
   };
 
   // Map Component to handle view changes
@@ -582,9 +594,17 @@ export default function App() {
                         >
                           <div className="p-6">
                             <div className="flex justify-between items-start mb-4">
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${typeInfo.bg} ${typeInfo.color}`}>
-                                {typeInfo.label}
-                              </span>
+                              <div className="flex flex-col gap-2">
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${typeInfo.bg} ${typeInfo.color} w-fit`}>
+                                  {typeInfo.label}
+                                </span>
+                                {event.target_date && (
+                                  <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold uppercase tracking-wider w-fit flex items-center gap-1">
+                                    <Clock size={10} />
+                                    {getCountdown(event.target_date)}
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex gap-2">
                                 <button 
                                   onClick={() => deleteEvent(event.id)}
@@ -1026,6 +1046,17 @@ export default function App() {
                       onChange={(e) => setFormData({...formData, event_day: e.target.value})}
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">ক্যালেন্ডার তারিখ (কাউন্টডাউন এর জন্য) *</label>
+                  <input 
+                    required
+                    type="date"
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                    value={formData.target_date}
+                    onChange={(e) => setFormData({...formData, target_date: e.target.value})}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
