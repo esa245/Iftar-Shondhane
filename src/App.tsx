@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { db } from './firebase';
 import { collection, addDoc, query, getDocs, where, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { supabase } from './supabase';
 
 // Fix for default marker icons in Leaflet
 const DefaultIcon = L.icon({
@@ -131,13 +132,25 @@ export default function App() {
     if (!window.confirm("আপনি কি নিশ্চিত যে আপনি এই ইভেন্টটি ডিলিট করতে চান?")) return;
 
     try {
-      // 1. Delete from Firebase
+      // 1. Delete from Supabase
+      const { error: supabaseError } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', id);
+      
+      if (supabaseError) throw supabaseError;
+
+      // 2. Delete from Firebase
       if (typeof id === 'string') {
-        const eventRef = doc(db, 'events', id);
-        await deleteDoc(eventRef);
+        try {
+          const eventRef = doc(db, 'events', id);
+          await deleteDoc(eventRef);
+        } catch (firebaseError) {
+          console.warn("Firebase delete failed", firebaseError);
+        }
       }
 
-      // 2. Delete from SQLite (Optional)
+      // 3. Delete from SQLite (Optional)
       await fetch('/api/events/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -220,44 +233,56 @@ export default function App() {
   const fetchEvents = async () => {
     setLoading(true);
     try {
-      // Primary: Fetch from Firebase Firestore for persistence on Vercel
-      const eventsRef = collection(db, 'events');
-      const q = query(eventsRef);
-      const querySnapshot = await getDocs(q);
-      const eventsData: Event[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        let matches = true;
-        if (filters.district && data.district !== filters.district) matches = false;
-        if (filters.type && data.type !== filters.type) matches = false;
-        if (filters.upazila && !data.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
-        if (filters.village && !data.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
-        
-        if (matches) {
-          eventsData.push({ id: doc.id, ...data } as Event);
-        }
-      });
+      // Primary: Fetch from Supabase
+      let queryBuilder = supabase
+        .from('events')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      // Sort by created_at desc
-      eventsData.sort((a, b) => {
-        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return dateB - dateA;
-      });
+      if (filters.district) queryBuilder = queryBuilder.eq('district', filters.district);
+      if (filters.type) queryBuilder = queryBuilder.eq('type', filters.type);
+      if (filters.upazila) queryBuilder = queryBuilder.ilike('upazila', `%${filters.upazila}%`);
+      if (filters.village) queryBuilder = queryBuilder.ilike('village', `%${filters.village}%`);
 
-      setEvents(eventsData);
+      const { data, error } = await queryBuilder;
+
+      if (error) throw error;
+
+      if (data) {
+        setEvents(data as Event[]);
+      }
     } catch (error) {
-      console.error("Failed to fetch events from Firebase", error);
-      // Fallback to Server API (SQLite) if Firebase fails
+      console.error("Failed to fetch events from Supabase", error);
+      // Fallback: Fetch from Firebase Firestore
       try {
-        const res = await fetch('/api/events');
-        if (res.ok) {
-          const data = await res.json();
-          setEvents(data);
-        }
-      } catch (e) {
-        console.error("Server fallback failed", e);
+        const eventsRef = collection(db, 'events');
+        const q = query(eventsRef);
+        const querySnapshot = await getDocs(q);
+        const eventsData: Event[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          let matches = true;
+          if (filters.district && data.district !== filters.district) matches = false;
+          if (filters.type && data.type !== filters.type) matches = false;
+          if (filters.upazila && !data.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
+          if (filters.village && !data.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
+          
+          if (matches) {
+            eventsData.push({ id: doc.id, ...data } as Event);
+          }
+        });
+
+        // Sort by created_at desc
+        eventsData.sort((a, b) => {
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return dateB - dateA;
+        });
+
+        setEvents(eventsData);
+      } catch (firebaseError) {
+        console.error("Firebase fallback failed", firebaseError);
       }
     } finally {
       setLoading(false);
@@ -279,10 +304,21 @@ export default function App() {
     };
 
     try {
-      // 1. Save to Firebase (Primary for Vercel persistence)
-      await addDoc(collection(db, 'events'), newEvent);
+      // 1. Save to Supabase (Primary)
+      const { error: supabaseError } = await supabase
+        .from('events')
+        .insert([newEvent]);
+      
+      if (supabaseError) throw supabaseError;
 
-      // 2. Save to Server (SQLite - Optional/Local Cache)
+      // 2. Save to Firebase (Backup)
+      try {
+        await addDoc(collection(db, 'events'), newEvent);
+      } catch (firebaseError) {
+        console.warn("Firebase backup failed", firebaseError);
+      }
+
+      // 3. Save to Server (SQLite - Optional/Local Cache)
       try {
         await fetch('/api/events', {
           method: 'POST',
@@ -290,7 +326,7 @@ export default function App() {
           body: JSON.stringify(newEvent)
         });
       } catch (serverError) {
-        console.warn("SQLite save failed, but Firebase succeeded", serverError);
+        console.warn("SQLite save failed", serverError);
       }
       
       // 3. Save to Google Drive if connected
