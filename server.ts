@@ -181,6 +181,21 @@ async function startServer() {
     }
   });
 
+  app.post("/api/events/delete", (req, res) => {
+    if (!db) {
+      return res.status(500).json({ error: "Database not initialized" });
+    }
+    try {
+      const { id } = req.body;
+      const stmt = db.prepare("DELETE FROM events WHERE id = ?");
+      stmt.run(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete event:", error);
+      res.status(500).json({ error: "Failed to delete event" });
+    }
+  });
+
   app.post("/api/drive/save", async (req, res) => {
     const tokens = (req.session as any).tokens;
     if (!tokens) {

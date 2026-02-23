@@ -119,6 +119,25 @@ export default function App() {
     }
   };
 
+  const deleteEvent = async (id: string | number) => {
+    if (!window.confirm("আপনি কি নিশ্চিত যে আপনি এই ইভেন্টটি ডিলিট করতে চান?")) return;
+
+    try {
+      const res = await fetch('/api/events/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        fetchEvents();
+      } else {
+        alert("ডিলিট করতে সমস্যা হয়েছে।");
+      }
+    } catch (e) {
+      console.error("Failed to delete event", e);
+    }
+  };
+
   const handleShare = async (event: Event) => {
     const shareData = {
       title: event.name,
@@ -386,23 +405,6 @@ export default function App() {
               নতুন ইভেন্ট
             </button>
           </div>
-          <button 
-            onClick={async () => {
-              try {
-                await addDoc(collection(db, 'events'), {
-                  name: "টেস্ট ইভেন্ট",
-                  district: "ঢাকা",
-                  created_at: new Date().toISOString()
-                });
-                alert("কানেকশন সফল! টেস্ট ডেটা যুক্ত হয়েছে।");
-              } catch (e) {
-                alert("কানেকশন এরর: " + (e as Error).message);
-              }
-            }}
-            className="ml-2 p-2 text-slate-300 hover:text-emerald-500"
-          >
-            <Info size={16} />
-          </button>
         </div>
       </header>
 
@@ -548,8 +550,17 @@ export default function App() {
                               <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${typeInfo.bg} ${typeInfo.color}`}>
                                 {typeInfo.label}
                               </span>
-                              <div className="text-slate-400 group-hover:text-emerald-600 transition-colors">
-                                <Info size={20} />
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => deleteEvent(event.id)}
+                                  className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                                  title="ডিলিট করুন"
+                                >
+                                  <X size={16} />
+                                </button>
+                                <div className="text-slate-400 group-hover:text-emerald-600 transition-colors">
+                                  <Info size={20} />
+                                </div>
                               </div>
                             </div>
                             
