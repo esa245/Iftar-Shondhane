@@ -1,0 +1,7 @@
+{
+  "name": "Remix: ইফতার সন্ধানে (Iftar Shondhane)",
+  "description": "আপনার এলাকায় ইফতার ও দ্বীনি মজলিসের খোঁজ নিন। জেলা, ইউনিয়ন এবং গ্রাম ভিত্তিক ইফতার মাহফিল ডিরেক্টরি।",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
