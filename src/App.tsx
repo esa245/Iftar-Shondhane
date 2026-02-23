@@ -121,6 +121,13 @@ export default function App() {
   };
 
   const deleteEvent = async (id: string | number) => {
+    const password = window.prompt("ইভেন্ট ডিলিট করতে পাসওয়ার্ড দিন:");
+    
+    if (password !== "0179215718") {
+      alert("ভুল পাসওয়ার্ড! ডিলিট করা সম্ভব নয়।");
+      return;
+    }
+
     if (!window.confirm("আপনি কি নিশ্চিত যে আপনি এই ইভেন্টটি ডিলিট করতে চান?")) return;
 
     try {
