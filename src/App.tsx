@@ -189,7 +189,10 @@ export default function App() {
     setLoading(true);
     try {
       const res = await fetch('/api/events');
-      if (!res.ok) throw new Error("Failed to fetch from server");
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Server error (${res.status}): ${text.substring(0, 50)}`);
+      }
       const data = await res.json();
       
       const eventsData: Event[] = data.filter((item: any) => {
@@ -249,8 +252,24 @@ export default function App() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to save to server");
+        let errorMessage = `Server error (${res.status})`;
+        try {
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await res.json();
+            errorMessage = errorData.error || errorMessage;
+          } else {
+            const text = await res.text();
+            if (text.includes("<!DOCTYPE html>") || text.includes("<html>")) {
+              errorMessage = "সার্ভার থেকে ভুল রেসপন্স এসেছে (HTML)। সম্ভবত রুটটি পাওয়া যায়নি।";
+            } else {
+              errorMessage = text.substring(0, 100);
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing error response", e);
+        }
+        throw new Error(errorMessage);
       }
 
       // 2. Save to Firebase (Backup)

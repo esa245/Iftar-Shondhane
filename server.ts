@@ -11,30 +11,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize SQLite Database
-const db = new Database("events.db");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    type TEXT,
-    district TEXT,
-    upazila TEXT,
-    village TEXT,
-    address TEXT,
-    date_range TEXT,
-    start_time TEXT,
-    iftar_time TEXT,
-    contact TEXT,
-    description TEXT,
-    image_url TEXT,
-    lat REAL,
-    lng REAL,
-    link_url TEXT,
-    event_date TEXT,
-    event_day TEXT,
-    created_at TEXT
-  )
-`);
+let db: Database.Database;
+try {
+  db = new Database("events.db");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      type TEXT,
+      district TEXT,
+      upazila TEXT,
+      village TEXT,
+      address TEXT,
+      date_range TEXT,
+      start_time TEXT,
+      iftar_time TEXT,
+      contact TEXT,
+      description TEXT,
+      image_url TEXT,
+      lat REAL,
+      lng REAL,
+      link_url TEXT,
+      event_date TEXT,
+      event_day TEXT,
+      created_at TEXT
+    )
+  `);
+  console.log("SQLite Database initialized successfully.");
+} catch (err) {
+  console.error("Failed to initialize SQLite database:", err);
+}
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -119,6 +125,9 @@ async function startServer() {
 
   // Events API
   app.get("/api/events", (req, res) => {
+    if (!db) {
+      return res.status(500).json({ error: "Database not initialized" });
+    }
     try {
       const events = db.prepare("SELECT * FROM events ORDER BY created_at DESC").all();
       res.json(events);
@@ -129,6 +138,9 @@ async function startServer() {
   });
 
   app.post("/api/events", (req, res) => {
+    if (!db) {
+      return res.status(500).json({ error: "Database not initialized" });
+    }
     try {
       const event = req.body;
       console.log("Adding event:", event.name);
