@@ -53,6 +53,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [isSavingToDrive, setIsSavingToDrive] = useState<string | null>(null);
 
   useEffect(() => {
     const checkGoogleStatus = async () => {
@@ -82,6 +83,39 @@ export default function App() {
       window.open(url, 'google_auth', 'width=600,height=700');
     } catch (e) {
       console.error("Failed to get Google auth URL", e);
+    }
+  };
+
+  const saveToDrive = async (event: Event) => {
+    if (!isGoogleConnected) {
+      alert("আগে গুগল ড্রাইভ কানেক্ট করুন।");
+      return;
+    }
+
+    setIsSavingToDrive(event.id.toString());
+    try {
+      const res = await fetch('/api/drive/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventData: event })
+      });
+      
+      if (res.ok) {
+        alert("গুগল ড্রাইভে সফলভাবে সেভ হয়েছে!");
+      } else {
+        const error = await res.json();
+        if (error.error === "Not connected to Google Drive") {
+          setIsGoogleConnected(false);
+          alert("গুগল ড্রাইভ কানেকশন বিচ্ছিন্ন হয়েছে। আবার কানেক্ট করুন।");
+        } else {
+          alert("সেভ করতে সমস্যা হয়েছে।");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to save to Drive", e);
+      alert("সার্ভার এরর। আবার চেষ্টা করুন।");
+    } finally {
+      setIsSavingToDrive(null);
     }
   };
 
@@ -300,13 +334,30 @@ export default function App() {
             <button onClick={() => setCurrentPage('contact')} className={`text-sm font-bold transition-colors ${currentPage === 'contact' ? 'text-emerald-600' : 'text-slate-500 hover:text-emerald-600'}`}>যোগাযোগ</button>
           </nav>
 
-          <button 
-            onClick={() => setShowAddForm(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-medium transition-all shadow-md active:scale-95"
-          >
-            <Plus size={18} />
-            নতুন ইভেন্ট
-          </button>
+          <div className="flex items-center gap-2">
+            {!isGoogleConnected ? (
+              <button 
+                onClick={connectGoogle}
+                className="hidden sm:flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all"
+              >
+                <Share2 size={14} className="text-emerald-600" />
+                কানেক্ট ড্রাইভ
+              </button>
+            ) : (
+              <div className="hidden sm:flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-xl text-xs font-bold border border-emerald-100">
+                <Check size={14} />
+                ড্রাইভ কানেক্টেড
+              </div>
+            )}
+            
+            <button 
+              onClick={() => setShowAddForm(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-medium transition-all shadow-md active:scale-95"
+            >
+              <Plus size={18} />
+              নতুন ইভেন্ট
+            </button>
+          </div>
           <button 
             onClick={async () => {
               try {
@@ -510,23 +561,37 @@ export default function App() {
                               )}
                             </div>
 
-                            <div className="flex gap-3">
+                            <div className="flex gap-2">
                               <a 
                                 href={event.lat && event.lng ? `https://www.google.com/maps/search/?api=1&query=${event.lat},${event.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${event.name} ${event.address} ${event.village}`)}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 py-3 rounded-xl text-center text-sm font-bold transition-all flex items-center justify-center gap-2"
+                                className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 py-3 rounded-xl text-center text-[12px] font-bold transition-all flex items-center justify-center gap-1"
                               >
-                                <MapPin size={16} />
+                                <MapPin size={14} />
                                 লোকেশন
                               </a>
                               <button 
                                 onClick={() => handleShare(event)}
-                                className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-3 rounded-xl text-center text-sm font-bold transition-all flex items-center justify-center gap-2"
+                                className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-3 rounded-xl text-center text-[12px] font-bold transition-all flex items-center justify-center gap-1"
                               >
-                                {copiedId === event.id.toString() ? <Check size={16} /> : <Share2 size={16} />}
-                                {copiedId === event.id.toString() ? 'কপি হয়েছে' : 'শেয়ার'}
+                                {copiedId === event.id.toString() ? <Check size={14} /> : <Share2 size={14} />}
+                                {copiedId === event.id.toString() ? 'কপি' : 'শেয়ার'}
                               </button>
+                              {isGoogleConnected && (
+                                <button 
+                                  onClick={() => saveToDrive(event)}
+                                  disabled={isSavingToDrive === event.id.toString()}
+                                  className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 rounded-xl text-center text-[12px] font-bold transition-all flex items-center justify-center gap-1 disabled:opacity-50"
+                                >
+                                  {isSavingToDrive === event.id.toString() ? (
+                                    <div className="w-3 h-3 border-2 border-blue-700 border-t-transparent rounded-full animate-spin"></div>
+                                  ) : (
+                                    <Utensils size={14} />
+                                  )}
+                                  ড্রাইভ
+                                </button>
+                              )}
                             </div>
                           </div>
                         </motion.div>
