@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { db } from './firebase';
-import { collection, addDoc, query, getDocs, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, query, getDocs, where, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 
 // Fix for default marker icons in Leaflet
 const DefaultIcon = L.icon({
@@ -124,18 +124,23 @@ export default function App() {
     if (!window.confirm("আপনি কি নিশ্চিত যে আপনি এই ইভেন্টটি ডিলিট করতে চান?")) return;
 
     try {
-      const res = await fetch('/api/events/delete', {
+      // 1. Delete from Firebase
+      if (typeof id === 'string') {
+        const eventRef = doc(db, 'events', id);
+        await deleteDoc(eventRef);
+      }
+
+      // 2. Delete from SQLite (Optional)
+      await fetch('/api/events/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
       });
-      if (res.ok) {
-        fetchEvents();
-      } else {
-        alert("ডিলিট করতে সমস্যা হয়েছে।");
-      }
+
+      fetchEvents();
     } catch (e) {
       console.error("Failed to delete event", e);
+      alert("ডিলিট করতে সমস্যা হয়েছে।");
     }
   };
 
@@ -208,44 +213,44 @@ export default function App() {
   const fetchEvents = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/events');
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server error (${res.status}): ${text.substring(0, 50)}`);
-      }
-      const data = await res.json();
+      // Primary: Fetch from Firebase Firestore for persistence on Vercel
+      const eventsRef = collection(db, 'events');
+      const q = query(eventsRef);
+      const querySnapshot = await getDocs(q);
+      const eventsData: Event[] = [];
       
-      const eventsData: Event[] = data.filter((item: any) => {
-        // Client-side filtering
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
         let matches = true;
-        if (filters.district && item.district !== filters.district) matches = false;
-        if (filters.type && item.type !== filters.type) matches = false;
-        if (filters.upazila && !item.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
-        if (filters.village && !item.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
-        return matches;
+        if (filters.district && data.district !== filters.district) matches = false;
+        if (filters.type && data.type !== filters.type) matches = false;
+        if (filters.upazila && !data.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
+        if (filters.village && !data.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
+        
+        if (matches) {
+          eventsData.push({ id: doc.id, ...data } as Event);
+        }
+      });
+
+      // Sort by created_at desc
+      eventsData.sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA;
       });
 
       setEvents(eventsData);
     } catch (error) {
-      console.error("Failed to fetch events", error);
-      // Fallback to Firebase if server fails
+      console.error("Failed to fetch events from Firebase", error);
+      // Fallback to Server API (SQLite) if Firebase fails
       try {
-        const eventsRef = collection(db, 'events');
-        const q = query(eventsRef);
-        const querySnapshot = await getDocs(q);
-        const eventsData: Event[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          let matches = true;
-          if (filters.district && data.district !== filters.district) matches = false;
-          if (filters.type && data.type !== filters.type) matches = false;
-          if (filters.upazila && !data.upazila?.toLowerCase().includes(filters.upazila.toLowerCase())) matches = false;
-          if (filters.village && !data.village?.toLowerCase().includes(filters.village.toLowerCase())) matches = false;
-          if (matches) eventsData.push({ id: doc.id, ...data } as Event);
-        });
-        setEvents(eventsData);
+        const res = await fetch('/api/events');
+        if (res.ok) {
+          const data = await res.json();
+          setEvents(data);
+        }
       } catch (e) {
-        console.error("Firebase fallback failed", e);
+        console.error("Server fallback failed", e);
       }
     } finally {
       setLoading(false);
@@ -267,39 +272,18 @@ export default function App() {
     };
 
     try {
-      // 1. Save to Server (SQLite)
-      const res = await fetch('/api/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEvent)
-      });
+      // 1. Save to Firebase (Primary for Vercel persistence)
+      await addDoc(collection(db, 'events'), newEvent);
 
-      if (!res.ok) {
-        let errorMessage = `Server error (${res.status})`;
-        try {
-          const contentType = res.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
-            const errorData = await res.json();
-            errorMessage = errorData.error || errorMessage;
-          } else {
-            const text = await res.text();
-            if (text.includes("<!DOCTYPE html>") || text.includes("<html>")) {
-              errorMessage = "সার্ভার থেকে ভুল রেসপন্স এসেছে (HTML)। সম্ভবত রুটটি পাওয়া যায়নি।";
-            } else {
-              errorMessage = text.substring(0, 100);
-            }
-          }
-        } catch (e) {
-          console.error("Error parsing error response", e);
-        }
-        throw new Error(errorMessage);
-      }
-
-      // 2. Save to Firebase (Backup)
+      // 2. Save to Server (SQLite - Optional/Local Cache)
       try {
-        await addDoc(collection(db, 'events'), newEvent);
-      } catch (e) {
-        console.error("Firebase backup failed", e);
+        await fetch('/api/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newEvent)
+        });
+      } catch (serverError) {
+        console.warn("SQLite save failed, but Firebase succeeded", serverError);
       }
       
       // 3. Save to Google Drive if connected
