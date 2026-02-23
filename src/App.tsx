@@ -54,6 +54,7 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isSavingToDrive, setIsSavingToDrive] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const checkGoogleStatus = async () => {
@@ -257,6 +258,9 @@ export default function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
     const newEvent = {
       ...formData,
       created_at: new Date().toISOString()
@@ -311,7 +315,9 @@ export default function App() {
         }
       }
       
+      alert("সফলভাবে যুক্ত হয়েছে! ওকে ক্লিক করুন।");
       setShowAddForm(false);
+      setCurrentPage('iftar'); // Go to home page
       fetchEvents(); // Refresh the list
       setFormData({
         name: "", type: "public_iftar", district: "", upazila: "", village: "",
@@ -322,6 +328,8 @@ export default function App() {
     } catch (error) {
       console.error("Failed to add event:", error);
       alert("ইভেন্ট যুক্ত করতে সমস্যা হয়েছে: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1102,9 +1110,17 @@ export default function App() {
 
                 <button 
                   type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg shadow-emerald-200 active:scale-[0.98]"
+                  disabled={isSubmitting}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-lg shadow-emerald-200 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  ইভেন্টটি যুক্ত করুন
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      যুক্ত হচ্ছে...
+                    </>
+                  ) : (
+                    "ইভেন্টটি যুক্ত করুন"
+                  )}
                 </button>
               </form>
             </motion.div>
